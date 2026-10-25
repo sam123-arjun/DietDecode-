@@ -1,0 +1,35 @@
+{
+  "rules": {
+    "devices": {
+      "$deviceId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "online": {
+          ".validate": "newData.isBoolean()"
+        },
+        "state": {
+          ".validate": "newData.isString()"
+        },
+        "lastSeen": {
+          ".validate": "newData.isNumber()"
+        },
+        "currentReminder": {
+          ".validate": "newData.hasChildren(['id', 'mealName', 'time', 'active'])"
+        },
+        "acknowledgement": {
+          ".validate": "newData.hasChildren(['acknowledged'])"
+        },
+        "telemetry": {
+          ".validate": "newData.hasChildren(['light', 'timestamp'])"
+        },
+        "command": {
+          ".validate": "newData.hasChildren(['commandId', 'type', 'status'])"
+        },
+        "fcmTokens": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

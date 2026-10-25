@@ -1,0 +1,8 @@
+# DietDecode ESP32 Firmware Local Secrets
+secrets.h
+
+# Arduino build artifacts & caches
+build/
+*.bin
+*.elf
+*.hex
