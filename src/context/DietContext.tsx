@@ -87,6 +87,21 @@ function mealsFromPlan(plan: DietPlan, userId: string): MealItem[] {
   }));
 }
 
+/** Deduplicates redundant upcoming water reminders and keeps the queue clean */
+function sanitizeReminders(list: Reminder[]): Reminder[] {
+  let foundUpcomingWater = false;
+  return list.filter((r) => {
+    const isWater =
+      r.mealName.toLowerCase().includes('water') ||
+      r.mealName.toLowerCase().includes('hydrat');
+    if (isWater && r.status === 'upcoming') {
+      if (foundUpcomingWater) return false; // drop extra upcoming water reminders
+      foundUpcomingWater = true;
+    }
+    return true;
+  });
+}
+
 /** Derive today's Reminders from today's plan meals */
 function remindersFromMeals(
   planMeals: MealItem[],
@@ -174,15 +189,16 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const plan = JSON.parse(raw) as DietPlan;
           const planMeals = mealsFromPlan(plan, u.id);
           const pr = remindersFromMeals(planMeals, u.id, plan.id);
-          const stored = storageService.getReminders(u.id);
-          return pr.map((r) => {
+          const stored = sanitizeReminders(storageService.getReminders(u.id));
+          const list = pr.map((r) => {
             const ex = stored.find((s) => s.mealId === r.mealId);
             return ex ? { ...r, status: ex.status, acknowledged: ex.acknowledged } : r;
           });
+          return sanitizeReminders(list);
         }
       }
     } catch {}
-    return storageService.getReminders(u.id);
+    return sanitizeReminders(storageService.getReminders(u.id));
   });
 
   const [history, setHistory] = useState<ReminderHistoryItem[]>(() => {
@@ -326,11 +342,9 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentTime(now);
       const nowMs = now.getTime();
 
-      // 1. Monitor active reminder grace period countdown & notifications
+      // 1. Monitor active reminder grace period countdown (NO notifications in 1s ticker!)
       const currentActive = reminders.find((r) => r.status === 'active');
       if (currentActive) {
-        notificationService.notifyMealAlert(currentActive);
-
         if (!activeStartTimeRef.current) {
           activeStartTimeRef.current = nowMs;
         }
@@ -341,11 +355,9 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (remaining <= 0) {
           // Grace period expired without acknowledgement -> transition to missed
-          const expiredReminder = { ...currentActive };
           activeStartTimeRef.current = null;
           setActiveGraceRemainingSeconds(null);
           updateReminderStatus(currentActive.id, 'missed');
-          notificationService.notifyMissedAlert(expiredReminder).catch(() => {});
           if (user) {
             esp32Service.markReminderMissed(user.id, currentActive.id).catch(() => {});
           }
@@ -557,6 +569,18 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
   /** Schedule a dedicated water reminder 1 hour from now (or specified hours ahead) */
   const scheduleNextWaterReminder = async (hoursAhead: number = 1): Promise<Reminder> => {
     const targetUserId = user?.id || 'usr_demo_882';
+    const existing = sanitizeReminders(storageService.getReminders(targetUserId));
+
+    // DEDUPLICATION: If there is already an upcoming water reminder, return it! Never spawn duplicates!
+    const existingUpcomingWater = existing.find(
+      (r) =>
+        r.status === 'upcoming' &&
+        (r.mealName.toLowerCase().includes('water') || r.mealName.toLowerCase().includes('hydrat'))
+    );
+    if (existingUpcomingWater) {
+      return existingUpcomingWater;
+    }
+
     const targetDate = new Date();
     targetDate.setTime(targetDate.getTime() + hoursAhead * 60 * 60 * 1000);
 
@@ -578,10 +602,9 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
       itemsSummary: '250ml Fresh Water • Hourly Hydration Goal',
     };
 
-    const existing = storageService.getReminders(targetUserId);
-    const updated = [waterReminder, ...existing];
+    const updated = sanitizeReminders([waterReminder, ...existing]);
     storageService.setReminders(targetUserId, updated);
-    setReminders((prev) => [waterReminder, ...prev]);
+    setReminders(updated);
 
     return waterReminder;
   };

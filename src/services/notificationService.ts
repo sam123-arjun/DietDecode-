@@ -358,8 +358,8 @@ class NotificationService {
       return this.notifyWaterAlert(reminder, force);
     }
 
-    const isTest = reminder.id.startsWith('rem_test_');
-    if (!force && !isTest && this.wasAlreadyNotified(reminder.id)) {
+    // Strict deduplication: Never dispatch duplicate alerts for the same reminder ID unless forced
+    if (!force && this.wasAlreadyNotified(reminder.id)) {
       return false;
     }
     // Mark immediately to prevent race conditions from rapid ticks
@@ -397,8 +397,8 @@ class NotificationService {
       return false;
     }
 
-    const isTest = reminder.id.startsWith('rem_test_');
-    if (!force && !isTest && this.wasAlreadyNotified(reminder.id)) {
+    // Strict deduplication: Never send duplicate water notifications for the same ID
+    if (!force && this.wasAlreadyNotified(reminder.id)) {
       return false;
     }
     this.markAsNotified(reminder.id);
