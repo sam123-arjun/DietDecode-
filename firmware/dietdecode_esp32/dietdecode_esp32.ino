@@ -796,7 +796,11 @@ static void oledService() {
   char l1[24], l2[24], l3[24], l4[24];
   switch (s.ds) {
   case DS_ACTIVE:
-    strlcpy(l1, "! MEAL TIME !", sizeof(l1));
+    if (strstr(s.meal, "Water") != NULL || strstr(s.meal, "water") != NULL || strstr(s.meal, "Hydrat") != NULL) {
+      strlcpy(l1, "! DRINK WATER !", sizeof(l1));
+    } else {
+      strlcpy(l1, "! MEAL TIME !", sizeof(l1));
+    }
     strlcpy(l2, s.meal[0] ? s.meal : "Reminder", sizeof(l2));
     strlcpy(l3, s.timeStr, sizeof(l3));
     strlcpy(l4, ">> Press Button <<", sizeof(l4));
@@ -806,14 +810,23 @@ static void oledService() {
     strlcpy(l2,
             s.ackMeal[0] ? s.ackMeal : (s.meal[0] ? s.meal : "Meal Recorded"),
             sizeof(l2));
-    strlcpy(l3, "Good Appetite!", sizeof(l3));
+    if (strstr(s.meal, "Water") != NULL || strstr(s.meal, "water") != NULL || strstr(s.ackMeal, "Water") != NULL) {
+      strlcpy(l3, "Hydrated! +250ml", sizeof(l3));
+    } else {
+      strlcpy(l3, "Good Appetite!", sizeof(l3));
+    }
     strlcpy(l4, s.ackPending ? "Syncing Cloud..." : "Status: Synced",
             sizeof(l4));
     break;
   case DS_MISSED:
-    strlcpy(l1, "MISSED MEAL", sizeof(l1));
+    if (strstr(s.meal, "Water") != NULL || strstr(s.meal, "water") != NULL) {
+      strlcpy(l1, "MISSED WATER", sizeof(l1));
+      strlcpy(l3, "Hydrate Soon!", sizeof(l3));
+    } else {
+      strlcpy(l1, "MISSED MEAL", sizeof(l1));
+      strlcpy(l3, "Grace Timeout", sizeof(l3));
+    }
     strlcpy(l2, s.meal[0] ? s.meal : "Meal", sizeof(l2));
-    strlcpy(l3, "Grace Timeout", sizeof(l3));
     strlcpy(l4, "No Button Pressed", sizeof(l4));
     break;
   default:

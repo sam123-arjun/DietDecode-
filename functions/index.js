@@ -102,12 +102,24 @@ export const onReminderActive = onValueWritten(
 
     console.log(`[onReminderActive] Sending push notification to ${tokens.length} device token(s)...`);
 
+    const isWater =
+      mealName.toLowerCase().includes('water') ||
+      mealName.toLowerCase().includes('hydrat');
+
+    const notificationTitle = isWater
+      ? '💧 Water Reminder: Time to Hydrate!'
+      : `🍽️ Meal Time: ${mealName}`;
+
+    const notificationBody = isWater
+      ? '1 hour has passed! Drink a glass of water (250ml) to hit your daily hydration goal.'
+      : `Scheduled for ${time}. Your ESP32 buzzer and OLED are alerting now!`;
+
     const messaging = getMessaging();
     const payload = {
       tokens,
       notification: {
-        title: `🍽️ Meal Time: ${mealName}`,
-        body: `Scheduled for ${time}. Your ESP32 buzzer and OLED are alerting now!`,
+        title: notificationTitle,
+        body: notificationBody,
       },
       data: {
         reminderId: String(reminderId),
@@ -120,7 +132,7 @@ export const onReminderActive = onValueWritten(
         priority: 'high',
         notification: {
           icon: 'notification_icon',
-          color: '#15803d',
+          color: isWater ? '#0284c7' : '#15803d',
           sound: 'default',
           channelId: 'dietdecode_meal_alerts',
           clickAction: '/reminders',
@@ -133,7 +145,7 @@ export const onReminderActive = onValueWritten(
         notification: {
           icon: '/favicon.svg',
           badge: '/favicon.svg',
-          tag: `dietdecode-meal-${reminderId}`,
+          tag: isWater ? `dietdecode-water-${reminderId}` : `dietdecode-meal-${reminderId}`,
           renotify: true,
           requireInteraction: true,
         },
@@ -180,6 +192,103 @@ export const onReminderActive = onValueWritten(
       console.error('[onReminderActive] Fatal error during FCM multicast send:', sendErr);
       throw sendErr;
     }
+  }
+);
+
+/**
+ * Trigger: onReminderMissed
+ * 
+ * Fires whenever /devices/{deviceId}/state transitions to 'MISSED'.
+ * Sends an urgent missed alert notification to mobile devices.
+ */
+export const onReminderMissed = onValueWritten(
+  {
+    ref: 'devices/{deviceId}/state',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const afterState = event.data.after.val();
+    const beforeState = event.data.before.val();
+    if (afterState !== 'MISSED' || beforeState === 'MISSED') {
+      return null;
+    }
+
+    const deviceId = event.params.deviceId;
+    const db = getDatabase();
+
+    let mealName = 'Scheduled Reminder';
+    let time = '';
+    let reminderId = `missed_${Date.now()}`;
+
+    try {
+      const remSnap = await db.ref(`devices/${deviceId}/currentReminder`).once('value');
+      if (remSnap.exists()) {
+        const val = remSnap.val();
+        mealName = val.mealName || mealName;
+        time = val.time || '';
+        reminderId = val.id || reminderId;
+      }
+    } catch (e) {
+      console.warn('[onReminderMissed] Could not read currentReminder:', e);
+    }
+
+    const isWater =
+      mealName.toLowerCase().includes('water') ||
+      mealName.toLowerCase().includes('hydrat');
+
+    const title = isWater ? '⚠️ Missed Water Reminder' : `⚠️ Missed Meal: ${mealName}`;
+    const body = isWater
+      ? 'Your hourly hydration alert expired without acknowledgement. Take a drink of water now!'
+      : `Your scheduled meal reminder for ${mealName} (${time}) was missed. Tap to view your plan.`;
+
+    const tokens = [];
+    try {
+      const rtdbSnap = await db.ref(`devices/${deviceId}/fcmTokens`).once('value');
+      if (rtdbSnap.exists()) {
+        const tokensObj = rtdbSnap.val();
+        for (const val of Object.values(tokensObj)) {
+          if (val && typeof val === 'object' && val.token) {
+            tokens.push(val.token);
+          }
+        }
+      }
+    } catch {}
+
+    if (tokens.length === 0) return null;
+
+    const messaging = getMessaging();
+    try {
+      await messaging.sendEachForMulticast({
+        tokens,
+        notification: { title, body },
+        data: {
+          reminderId: String(reminderId),
+          missed: 'true',
+          url: '/reminders',
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            color: '#dc2626',
+            sound: 'default',
+            channelId: 'dietdecode_meal_alerts',
+          },
+        },
+        webpush: {
+          notification: {
+            icon: '/favicon.svg',
+            badge: '/favicon.svg',
+            tag: `dietdecode-missed-${reminderId}`,
+            requireInteraction: true,
+          },
+        },
+      });
+      console.log(`[onReminderMissed] Missed alert dispatched to ${tokens.length} device(s)`);
+    } catch (err) {
+      console.error('[onReminderMissed] Error sending missed push:', err);
+    }
+
+    return null;
   }
 );
 

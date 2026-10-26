@@ -335,7 +335,7 @@ class NotificationService {
   }
 
   /**
-   * Dispatch a browser notification for an active meal reminder.
+   * Dispatch a browser notification for an active meal or water reminder.
    * Guaranteed deduplicated & idempotently handled.
    */
   public async notifyMealAlert(
@@ -348,6 +348,14 @@ class NotificationService {
   ): Promise<boolean> {
     if (!this.isSupported() || Notification.permission !== 'granted') {
       return false;
+    }
+
+    const isWater =
+      reminder.mealName.toLowerCase().includes('water') ||
+      reminder.mealName.toLowerCase().includes('hydrat');
+
+    if (isWater) {
+      return this.notifyWaterAlert(reminder, force);
     }
 
     const isTest = reminder.id.startsWith('rem_test_');
@@ -372,6 +380,89 @@ class NotificationService {
 
     const delivered = await this.showSystemNotification(title, options);
     return delivered;
+  }
+
+  /**
+   * Dispatch a dedicated water / hydration notification.
+   */
+  public async notifyWaterAlert(
+    reminder: {
+      id: string;
+      mealName: string;
+      time: string;
+    },
+    force: boolean = false
+  ): Promise<boolean> {
+    if (!this.isSupported() || Notification.permission !== 'granted') {
+      return false;
+    }
+
+    const isTest = reminder.id.startsWith('rem_test_');
+    if (!force && !isTest && this.wasAlreadyNotified(reminder.id)) {
+      return false;
+    }
+    this.markAsNotified(reminder.id);
+
+    const title = `💧 Water Reminder: Time to Hydrate!`;
+    const options = {
+      body: `1 hour has passed! Drink a glass of water (250ml) to hit your daily hydration goal.`,
+      tag: `dietdecode-water-${reminder.id}`,
+      vibrate: [250, 100, 250, 100, 250],
+      data: {
+        reminderId: reminder.id,
+        url: '/reminders',
+      },
+      actions: [
+        { action: 'open', title: 'I Drank Water 💧' },
+      ],
+    };
+
+    return await this.showSystemNotification(title, options);
+  }
+
+  /**
+   * Dispatch a high-priority alert notification when a reminder is MISSED (timed out).
+   */
+  public async notifyMissedAlert(
+    reminder: {
+      id: string;
+      mealName: string;
+      time: string;
+    }
+  ): Promise<boolean> {
+    if (!this.isSupported() || Notification.permission !== 'granted') {
+      return false;
+    }
+
+    const missedTag = `dietdecode-missed-${reminder.id}`;
+    if (this.wasAlreadyNotified(missedTag)) {
+      return false;
+    }
+    this.markAsNotified(missedTag);
+
+    const isWater =
+      reminder.mealName.toLowerCase().includes('water') ||
+      reminder.mealName.toLowerCase().includes('hydrat');
+
+    const title = isWater ? `⚠️ Missed Water Reminder: Drink Water!` : `⚠️ Missed Meal Alert: ${reminder.mealName}`;
+    const body = isWater
+      ? `Your 1-hour hydration reminder at ${reminder.time} expired without acknowledgement. Drink a glass of water now!`
+      : `Your scheduled meal reminder at ${reminder.time} was not acknowledged. Tap to log your meal.`;
+
+    const options = {
+      body,
+      tag: missedTag,
+      vibrate: [400, 150, 400],
+      data: {
+        reminderId: reminder.id,
+        url: '/reminders',
+      },
+      actions: [
+        { action: 'open', title: 'Open DietDecode' },
+      ],
+    };
+
+    return await this.showSystemNotification(title, options);
   }
 
   /**

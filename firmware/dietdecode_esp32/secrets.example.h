@@ -8,8 +8,8 @@
 // ==============================================================
 
 // 1. Wi-Fi Configuration (2.4 GHz networks only — ESP32 does not support 5 GHz)
-#define WIFI_SSID "Arjun"
-#define WIFI_PASSWORD "20032004"
+#define WIFI_SSID "VCET_210"
+#define WIFI_PASSWORD "Vcet@210"
 
 // 2. Firebase Web API Key
 //    Firebase Console → Project Settings → General → Web API Key

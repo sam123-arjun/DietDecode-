@@ -47,6 +47,10 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onNavigate }) => {
     currentTime,
     activeGraceRemainingSeconds,
     triggerQuickTestReminder,
+    scheduleNextWaterReminder,
+    triggerQuickWaterTest,
+    hourlyWaterRemindersEnabled,
+    setHourlyWaterRemindersEnabled,
     activeReminder,
     nextReminder,
   } = useDiet();
@@ -54,6 +58,8 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onNavigate }) => {
   const [alertError, setAlertError] = useState<string | null>(null);
   const [reminderAlertErrors, setReminderAlertErrors] = useState<Record<string, string | null>>({});
   const [isQuickTesting, setIsQuickTesting] = useState<boolean>(false);
+  const [isSchedulingWater, setIsSchedulingWater] = useState<boolean>(false);
+  const [isTestingWater, setIsTestingWater] = useState<boolean>(false);
   const [testingReminderId, setTestingReminderId] = useState<string | null>(null);
 
   const effectiveActiveReminder = useMemo(() => {
@@ -122,6 +128,24 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onNavigate }) => {
       await triggerQuickTestReminder(10, 'Live 10s Demo Alert');
     } finally {
       setTimeout(() => setIsQuickTesting(false), 1000);
+    }
+  };
+
+  const handleScheduleWater = async () => {
+    setIsSchedulingWater(true);
+    try {
+      await scheduleNextWaterReminder(1);
+    } finally {
+      setIsSchedulingWater(false);
+    }
+  };
+
+  const handleTestWater = async () => {
+    setIsTestingWater(true);
+    try {
+      await triggerQuickWaterTest();
+    } finally {
+      setTimeout(() => setIsTestingWater(false), 1200);
     }
   };
 
@@ -313,10 +337,86 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onNavigate }) => {
                     isLoading={isQuickTesting}
                     leftIcon={<Zap size={16} />}
                   >
-                    ⚡ Test 10s Live Countdown
+                    ⚡ Test 10s Countdown
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="md"
+                    onClick={handleTestWater}
+                    isLoading={isTestingWater}
+                    leftIcon={<span style={{ fontSize: '1rem' }}>💧</span>}
+                  >
+                    Test Water Alert (10s)
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    onClick={handleScheduleWater}
+                    isLoading={isSchedulingWater}
+                    leftIcon={<span style={{ fontSize: '1rem' }}>⏰</span>}
+                  >
+                    +1 Hour Water Alert
                   </Button>
                 </>
               )}
+            </div>
+
+            {/* Hourly Hydration Tracker Banner */}
+            <div
+              style={{
+                marginTop: '1.25rem',
+                padding: '1rem 1.25rem',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(56, 189, 248, 0.04) 100%)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '1rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '10px',
+                    background: 'rgba(2, 132, 199, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.25rem',
+                  }}
+                >
+                  💧
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0369a1', fontSize: '0.95rem' }}>
+                    Hourly Hydration Reminders
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                    Alerts your ESP32 buzzer and phone every 1 hour to drink 250ml water. Automatically notifies if missed.
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Button
+                  variant={hourlyWaterRemindersEnabled ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => setHourlyWaterRemindersEnabled(!hourlyWaterRemindersEnabled)}
+                >
+                  {hourlyWaterRemindersEnabled ? '● Hourly Alerts ON' : '○ Enable Hourly Alerts'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleScheduleWater}
+                  isLoading={isSchedulingWater}
+                >
+                  💧 Schedule in 1 Hour
+                </Button>
+              </div>
             </div>
 
             {alertError && (

@@ -41,7 +41,19 @@ const WATER_KEY = (userId: string) => `dietdecode_water_${userId}_${new Date().t
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
   const { user } = useAuth();
-  const { profile, meals, reminders, nutritionStats, loading, updateReminderStatus, activePlan, currentTime, nextReminder, activeReminder } = useDiet();
+  const {
+    profile,
+    meals,
+    reminders,
+    nutritionStats,
+    loading,
+    updateReminderStatus,
+    activePlan,
+    currentTime,
+    nextReminder,
+    activeReminder,
+    scheduleNextWaterReminder,
+  } = useDiet();
   const { triggerTestReminder, deviceState, iotMode } = useESP32();
 
   const [loggedWater, setLoggedWater] = useState<number>(() => {
@@ -165,6 +177,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       if (user) localStorage.setItem(WATER_KEY(user.id), String(next));
       return next;
     });
+    // Automatically queue next water reminder for 1 hour later
+    scheduleNextWaterReminder(1).catch(() => {});
   };
 
   // Environmental Telemetry state calculations
@@ -646,9 +660,19 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
                 </div>
               </div>
 
-              <Button size="sm" variant="secondary" onClick={handleAddWater} leftIcon={<Plus size={13} />}>
-                +250 ml
-              </Button>
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => scheduleNextWaterReminder(1)}
+                  title="Schedule a water reminder for 1 hour from now"
+                >
+                  ⏰ In 1h
+                </Button>
+                <Button size="sm" variant="secondary" onClick={handleAddWater} leftIcon={<Plus size={13} />}>
+                  +250 ml
+                </Button>
+              </div>
             </div>
 
             <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '9999px', overflow: 'hidden', marginTop: '1rem' }}>

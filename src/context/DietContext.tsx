@@ -35,6 +35,14 @@ interface DietContextType {
   activeGraceRemainingSeconds: number | null;
   /** Trigger a quick demo alert in specified seconds for testing real-time scheduling */
   triggerQuickTestReminder: (seconds?: number, mealName?: string) => Promise<void>;
+  /** Schedule a water reminder 1 hour from now (or specified hours ahead) */
+  scheduleNextWaterReminder: (hoursAhead?: number) => Promise<Reminder>;
+  /** Test a live 10-second water alert (buzzer, OLED, and hydration notification) */
+  triggerQuickWaterTest: () => Promise<void>;
+  /** Whether hourly water reminders are enabled */
+  hourlyWaterRemindersEnabled: boolean;
+  /** Toggle hourly water reminders */
+  setHourlyWaterRemindersEnabled: (enabled: boolean) => void;
   /** The currently active 7-day DietPlan (null if none has been generated yet) */
   activePlan: DietPlan | null;
   /** All saved plan versions, newest first */
@@ -184,6 +192,24 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [settings, setSettings] = useState<AppSettings>(dataService.getSettings());
   const [loading, setLoading] = useState<boolean>(false);
+  const [hourlyWaterRemindersEnabled, setHourlyWaterRemindersEnabledState] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('dietdecode_hourly_water_enabled');
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const setHourlyWaterRemindersEnabled = (enabled: boolean) => {
+    setHourlyWaterRemindersEnabledState(enabled);
+    try {
+      localStorage.setItem('dietdecode_hourly_water_enabled', String(enabled));
+    } catch {}
+    if (enabled) {
+      scheduleNextWaterReminder(1).catch(() => {});
+    }
+  };
 
   const refreshData = useCallback(async () => {
     if (!user) {
@@ -315,9 +341,11 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (remaining <= 0) {
           // Grace period expired without acknowledgement -> transition to missed
+          const expiredReminder = { ...currentActive };
           activeStartTimeRef.current = null;
           setActiveGraceRemainingSeconds(null);
           updateReminderStatus(currentActive.id, 'missed');
+          notificationService.notifyMissedAlert(expiredReminder).catch(() => {});
           if (user) {
             esp32Service.markReminderMissed(user.id, currentActive.id).catch(() => {});
           }
@@ -420,9 +448,21 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!byDevice) {
         esp32Service.acknowledgeReminder(user.id, reminderId).catch(() => {});
       }
+
+      // If completed reminder was a water reminder, automatically schedule the next 1-hour water reminder!
+      if (updated.mealName.toLowerCase().includes('water') && hourlyWaterRemindersEnabled) {
+        scheduleNextWaterReminder(1).catch(() => {});
+      }
     } else if (status === 'missed') {
+      // Dispatch high-priority missed notification
+      notificationService.notifyMissedAlert(updated).catch(() => {});
       if (!byDevice) {
         esp32Service.markReminderMissed(user.id, reminderId).catch(() => {});
+      }
+
+      // If a water reminder was missed, continue hydration cycle 1 hour later
+      if (updated.mealName.toLowerCase().includes('water') && hourlyWaterRemindersEnabled) {
+        scheduleNextWaterReminder(1).catch(() => {});
       }
     }
 
@@ -514,6 +554,76 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, seconds * 1000);
   };
 
+  /** Schedule a dedicated water reminder 1 hour from now (or specified hours ahead) */
+  const scheduleNextWaterReminder = async (hoursAhead: number = 1): Promise<Reminder> => {
+    const targetUserId = user?.id || 'usr_demo_882';
+    const targetDate = new Date();
+    targetDate.setTime(targetDate.getTime() + hoursAhead * 60 * 60 * 1000);
+
+    const timeStr = targetDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const dateStr = targetDate.toISOString().split('T')[0];
+    const waterId = `rem_water_${Date.now()}`;
+
+    const waterReminder: Reminder = {
+      id: waterId,
+      userId: targetUserId,
+      mealId: `meal_${waterId}`,
+      mealName: 'Drink Water (Hydration)',
+      date: dateStr,
+      time: timeStr,
+      status: 'upcoming',
+      enabled: true,
+      acknowledged: false,
+      scheduledTimestamp: targetDate.getTime(),
+      itemsSummary: '250ml Fresh Water • Hourly Hydration Goal',
+    };
+
+    const existing = storageService.getReminders(targetUserId);
+    const updated = [waterReminder, ...existing];
+    storageService.setReminders(targetUserId, updated);
+    setReminders((prev) => [waterReminder, ...prev]);
+
+    return waterReminder;
+  };
+
+  /** Test a live 10-second water alert (buzzer, OLED, and hydration notification) */
+  const triggerQuickWaterTest = async (): Promise<void> => {
+    const targetUserId = user?.id || 'usr_demo_882';
+    const now = new Date();
+    const testTarget = new Date(now.getTime() + 10000);
+    const timeStr = testTarget.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const dateStr = testTarget.toISOString().split('T')[0];
+    const testWaterId = `rem_test_water_${Date.now()}`;
+
+    const testReminder: Reminder = {
+      id: testWaterId,
+      userId: targetUserId,
+      mealId: `meal_${testWaterId}`,
+      mealName: 'Drink Water (Hydration)',
+      date: dateStr,
+      time: timeStr,
+      status: 'upcoming',
+      enabled: true,
+      acknowledged: false,
+      scheduledTimestamp: testTarget.getTime(),
+      itemsSummary: 'Instant 10s Water Reminder Alert (250ml)',
+    };
+
+    const existingStored = storageService.getReminders(targetUserId);
+    storageService.setReminders(targetUserId, [
+      testReminder,
+      ...existingStored.filter((r) => !r.id.startsWith('rem_test_')),
+    ]);
+
+    setReminders((prev) => [testReminder, ...prev.filter((r) => !r.id.startsWith('rem_test_'))]);
+
+    setTimeout(async () => {
+      await updateReminderStatus(testReminder.id, 'active');
+      notificationService.notifyWaterAlert(testReminder, true).catch(() => {});
+      esp32Service.triggerReminder(targetUserId, testReminder).catch(() => {});
+    }, 10000);
+  };
+
   const resetAllData = async (): Promise<void> => {
     if (!user) return;
     await dataService.resetData(user.id);
@@ -542,6 +652,10 @@ export const DietProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentTime,
         activeGraceRemainingSeconds,
         triggerQuickTestReminder,
+        scheduleNextWaterReminder,
+        triggerQuickWaterTest,
+        hourlyWaterRemindersEnabled,
+        setHourlyWaterRemindersEnabled,
         activePlan,
         planHistory,
         saveProfile,
