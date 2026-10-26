@@ -287,9 +287,29 @@ export const checkScheduledReminders = onSchedule(
     region: 'us-central1',
   },
   async (event) => {
-    const now = new Date();
-    console.log(`[checkScheduledReminders] Running periodic check at ${now.toISOString()}`);
-    // Evaluates scheduled reminders in Firestore when backend scheduling is active
+    const now = Date.now();
+    console.log(`[checkScheduledReminders] Running periodic check at ${new Date(now).toISOString()}`);
+
+    // Check device presence: mark devices offline if heartbeat has expired (> 90 seconds)
+    try {
+      const db = getDatabase();
+      const snap = await db.ref('devices').once('value');
+      if (snap.exists()) {
+        const devices = snap.val();
+        for (const [devId, devData] of Object.entries(devices)) {
+          if (devData && devData.online === true && devData.lastSeen) {
+            const lastSeenMs = Number(devData.lastSeen);
+            if (!isNaN(lastSeenMs) && (now - lastSeenMs > 90000)) {
+              console.log(`[Presence] Device "${devId}" heartbeat expired (${now - lastSeenMs}ms ago). Setting online: false.`);
+              await db.ref(`devices/${devId}`).update({ online: false });
+            }
+          }
+        }
+      }
+    } catch (presenceErr) {
+      console.warn('[checkScheduledReminders] Presence check error:', presenceErr);
+    }
+
     return null;
   }
 );

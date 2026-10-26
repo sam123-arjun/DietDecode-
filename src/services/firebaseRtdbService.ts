@@ -241,10 +241,10 @@ class FirebaseRtdbService {
   }
 
   /**
-   * Update device heartbeat / presence
+   * Set device online flag directly (without overwriting historical lastSeen timestamp)
    */
-  public async updateHeartbeat(
-    online: boolean = true,
+  public async setDeviceOnline(
+    online: boolean,
     deviceId: string = defaultDeviceId
   ): Promise<void> {
     const deviceRef = this.getDeviceRef(deviceId);
@@ -253,12 +253,13 @@ class FirebaseRtdbService {
     try {
       await update(deviceRef, {
         online,
-        lastSeen: Date.now(),
       });
+      console.info(`[RTDB] Device ${deviceId} presence set to online: ${online}`);
     } catch (err) {
-      // ignore
+      console.warn('[RTDB] Error setting device presence:', err);
     }
   }
+
 
   /**
    * Listen specifically to live sensor telemetry of the device in Firebase RTDB

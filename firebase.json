@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "dietdecode-808be",
     "public": "dist",
     "ignore": [
       "firebase.json",

@@ -67,9 +67,33 @@ class ESP32Service {
   private listeners: ((state: ESP32DeviceState) => void)[] = [];
   private ackListeners: ((reminderId?: string, byDevice?: boolean) => void)[] = [];
   private rtdbUnsub: (() => void) | null = null;
+  private lastHeartbeatMs: number = 0;
+  private rawRtdbOnline: boolean = false;
+  private heartbeatInterval: number | null = null;
 
   constructor() {
     this.initMode();
+  }
+
+  private evaluateConnectionFreshness(): void {
+    if (this.mode !== 'firebase') return;
+
+    const isRecentlyOnline = this.lastHeartbeatMs > 0 && Date.now() - this.lastHeartbeatMs < 90000;
+    const isConnected = Boolean(this.rawRtdbOnline && isRecentlyOnline);
+
+    if (this.state.connected !== isConnected) {
+      this.state.connected = isConnected;
+      if (this.state.currentState === 'READY') {
+        this.state.oledDisplay.line2 = isConnected ? 'Status: ONLINE' : 'Status: OFFLINE';
+      }
+      this.notify();
+
+      // If the hardware timed out while RTDB still had online: true, sync RTDB to offline
+      if (!isConnected && this.rawRtdbOnline) {
+        firebaseRtdbService.setDeviceOnline(false, this.deviceId);
+        this.rawRtdbOnline = false;
+      }
+    }
   }
 
   public onReminderAcknowledged(cb: (reminderId?: string, byDevice?: boolean) => void): () => void {
@@ -115,14 +139,10 @@ class ESP32Service {
         this.rtdbUnsub = firebaseRtdbService.subscribeToDevice((rtdbData: DeviceRtdbState | null) => {
           if (!rtdbData) return;
 
-          // Check heartbeat / online status (seen within last 90 seconds)
-          const lastSeenMs = typeof rtdbData.lastSeen === 'number' ? rtdbData.lastSeen : Date.now();
-          const isRecentlyOnline = Date.now() - lastSeenMs < 90000;
-          this.state.connected = Boolean(rtdbData.online || isRecentlyOnline);
-          if (this.state.currentState === 'READY') {
-            this.state.oledDisplay.line2 = this.state.connected ? 'Status: ONLINE' : 'Status: OFFLINE';
-            this.state.oledDisplay.line3 = 'Cloud: FIREBASE';
-          }
+          // Authoritative heartbeat & freshness: device must have reported within 90 seconds
+          this.rawRtdbOnline = Boolean(rtdbData.online);
+          this.lastHeartbeatMs = typeof rtdbData.lastSeen === 'number' ? rtdbData.lastSeen : 0;
+          this.evaluateConnectionFreshness();
 
           // Authoritative reminder ID synchronization
           const currentU = storageService.getUser();
@@ -240,11 +260,16 @@ class ESP32Service {
       }, 2000);
     }
 
-    // Keep last ping updated
-    window.setInterval(() => {
+    // Periodically re-evaluate heartbeat freshness every 5 seconds so unplugging the ESP32
+    // transitions the UI and RTDB to OFFLINE within 90s without needing a manual refresh
+    if (this.heartbeatInterval) {
+      window.clearInterval(this.heartbeatInterval);
+    }
+    this.heartbeatInterval = window.setInterval(() => {
+      this.evaluateConnectionFreshness();
       this.state.lastPing = new Date().toLocaleTimeString();
       this.notify();
-    }, 10000);
+    }, 5000);
   }
 
   public getIotMode(): 'firebase' | 'local' {
